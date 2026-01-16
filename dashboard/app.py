@@ -268,7 +268,7 @@ c2.metric("Historical rows", f"{len(df_historical):,}")
 c3.metric("Broken columns", f"{len(broken_cols):,}")
 c4.metric("Outside-band trades", f"{len(df_outside):,}")
 
-st.caption(f"Now (NY): {now_ny:%Y-%m-%d %H:%M} | Current week ends (NY Sunday): {current_week_end}")
+st.caption(f"Now (NY): {now_ny:%Y-%m-%d %H:%M} | next week ends (NY Sunday): {next_week_end}")
 
 # ---------------------------
 # Section: Weekly games offered
@@ -289,7 +289,7 @@ fig_weekly = px.line(
     color="ticker_option",
     markers=True,
     color_discrete_sequence=NEON_COLORS,
-    title=f"Weekly Games Offered (History → current week ending {current_week_end}, NY)",
+    title=f"Weekly Games Offered (History → next week ending {next_week_end}, NY)",
 )
 fig_weekly.update_traces(line=dict(width=3), marker=dict(size=9))
 fig_weekly.update_layout(
