@@ -213,6 +213,11 @@ if df_historical.empty:
     st.warning("No historical rows found for the selected prefixes.")
     st.stop()
 
+if df_past.empty:
+    st.warning("No past events found yet for the selected prefixes (completeness is undefined).")
+    st.stop()
+
+
 total_rows = len(df_past)
 coverage = (
     df_past.notna()
@@ -311,13 +316,16 @@ st.plotly_chart(fig_weekly, use_container_width=True)
 # Section: Completeness
 # ---------------------------
 st.subheader("Column Completeness")
+cov_plot = coverage.sort_values(["status", "pct_not_null"])
 
 fig_cov = px.bar(
-    coverage.sort_values("pct_not_null"),
+    cov_plot,
     x="pct_not_null",
     y="column",
     orientation="h",
-    title="Column completeness (% not null)",
+    title="Column completeness (% not null) — past events only",
+    facet_row="status",
+    category_orders={"status": ["🟢 Good", "🟡 Partial", "⚠️ Sparse", "🚨 Dead"]},
     color="status",
     color_discrete_map={
         "🟢 Good": "#7CFF00",
@@ -325,16 +333,22 @@ fig_cov = px.bar(
         "⚠️ Sparse": "#FF6B00",
         "🚨 Dead": "#FF2CDF",
     },
+    height=900,
 )
+
 fig_cov.update_layout(
     plot_bgcolor=DARK_BG,
     paper_bgcolor=DARK_BG,
     font=dict(color=TEXT),
-    xaxis=dict(title="% of rows with data", showgrid=True, gridcolor=GRID, zeroline=False),
-    yaxis=dict(title="", showgrid=False),
-    legend=dict(orientation="h", y=1.05),
+    showlegend=False,
     margin=dict(l=140, r=40, t=80, b=40),
 )
+
+# Make facets tighter/cleaner
+fig_cov.for_each_annotation(lambda a: a.update(text=a.text.replace("status=", "")))
+fig_cov.update_yaxes(title="", showgrid=False)
+fig_cov.update_xaxes(title="% of rows with data", showgrid=True, gridcolor=GRID, zeroline=False)
+
 st.plotly_chart(fig_cov, use_container_width=True)
 
 with st.expander("Show completeness table"):
