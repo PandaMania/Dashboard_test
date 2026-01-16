@@ -205,14 +205,17 @@ next_week_end = (now_ny + pd.Timedelta(days=14)).to_period("W-SUN").end_time.dat
 df_historical = df[df["week_end_sun_ny"] <= next_week_end].copy()
 
 df_historical["ticker_option"] = df_historical["ticker"].astype(str).str.extract(r"^(KX[A-Z]+GAME)")
+now_ny = pd.Timestamp.now(tz="America/New_York")
+
+df_past = df[df["close_time_ny"] <= now_ny].copy()
 
 if df_historical.empty:
     st.warning("No historical rows found for the selected prefixes.")
     st.stop()
 
-total_rows = len(df_historical)
+total_rows = len(df_past)
 coverage = (
-    df_historical.notna()
+    df_past.notna()
     .mean()
     .mul(100)
     .round(2)
