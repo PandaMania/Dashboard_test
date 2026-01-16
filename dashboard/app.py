@@ -198,9 +198,12 @@ df["close_time_ny"] = df["close_time"].dt.tz_convert("America/New_York")
 df["week_end_sun_ny"] = df["close_time_ny"].dt.to_period("W-SUN").dt.end_time.dt.date
 
 now_ny = pd.Timestamp.now(tz="America/New_York")
-current_week_end = now_ny.to_period("W-SUN").end_time.date()
 
-df_historical = df[df["week_end_sun_ny"] <= current_week_end].copy()
+current_week_end = now_ny.to_period("W-SUN").end_time.date()
+next_week_end = (now_ny + pd.Timedelta(days=7)).to_period("W-SUN").end_time.date()
+
+df_historical = df[df["week_end_sun_ny"] <= next_week_end].copy()
+
 df_historical["ticker_option"] = df_historical["ticker"].astype(str).str.extract(r"^(KX[A-Z]+GAME)")
 
 if df_historical.empty:
