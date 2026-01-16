@@ -5,6 +5,7 @@ import streamlit as st
 from sqlalchemy import create_engine, text
 import plotly.express as px
 
+CACHE_TTL_SECONDS = 6 * 60 * 60
 # NEW: load .env locally (safe in prod: it just does nothing if no .env exists)
 try:
     from dotenv import load_dotenv
@@ -115,7 +116,7 @@ def get_engine():
     url = f"postgresql+psycopg2://{user}:{pwd}@{host}:5432/{name}"
     return create_engine(url, pool_pre_ping=True)
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
 def qdf(sql: str, params: dict | None = None) -> pd.DataFrame:
     engine = get_engine()
     with engine.begin() as conn:
