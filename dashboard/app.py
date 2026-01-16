@@ -210,7 +210,7 @@ if df_historical.empty:
     st.warning("No historical rows found for the selected prefixes.")
     st.stop()
 
-df_past = df[df["close_time_ny"] <= now_ny].copy()
+df_past = df_historical[df_historical["close_time_ny"] <= now_ny].copy()
 
 
 # ---------------------------
