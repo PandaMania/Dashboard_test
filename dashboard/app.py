@@ -233,7 +233,7 @@ coverage = (
 coverage["null_pct"] = (100 - coverage["pct_not_null"]).round(2)
 coverage["rows_not_null"] = (coverage["pct_not_null"] * total_rows / 100).round(0).astype(int)
 coverage["rows_null"] = total_rows - coverage["rows_not_null"]
-coverage["status"] = pd.cut(
+coverage["health"] = pd.cut(
     coverage["pct_not_null"],
     bins=[-1, 5, 50, 90, 100],
     labels=["🚨 Dead", "⚠️ Sparse", "🟡 Partial", "🟢 Good"],
@@ -325,8 +325,8 @@ fig_cov = px.bar(
     orientation="h",
     title="Column completeness (% not null) — past events only",
     facet_row="status",
-    category_orders={"status": ["🟢 Good", "🟡 Partial", "⚠️ Sparse", "🚨 Dead"]},
-    color="status",
+    category_orders={"health": ["🟢 Good", "🟡 Partial", "⚠️ Sparse", "🚨 Dead"]},
+    color="health",
     color_discrete_map={
         "🟢 Good": "#7CFF00",
         "🟡 Partial": "#FFD300",
@@ -363,7 +363,7 @@ if broken_cols:
     col = st.selectbox("Pick a column to inspect", broken_cols, index=0)
 
     heat = (
-        df_historical.dropna(subset=["ticker_option", "week_end_sun_ny"])
+        df_past.dropna(subset=["ticker_option", "week_end_sun_ny"])
         .groupby(["week_end_sun_ny", "ticker_option"], as_index=False)
         .agg(
             total_games=("ticker", "nunique"),
