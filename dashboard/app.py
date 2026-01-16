@@ -217,6 +217,20 @@ if df_past.empty:
     st.warning("No past events found yet for the selected prefixes (completeness is undefined).")
     st.stop()
 
+if "status" not in df_past.columns:
+    st.error("markets2026 missing required column: status")
+    st.stop()
+
+# Completeness per column, per markets2026.status (past events only)
+cov_by_mkt_status = (
+    df_past.groupby(df_past["status"].astype(str))
+           .apply(lambda g: g.notna().mean() * 100)
+           .reset_index()
+           .rename(columns={"level_0": "market_status", "level_1": "column", 0: "pct_not_null"})
+)
+
+cov_by_mkt_status["pct_not_null"] = cov_by_mkt_status["pct_not_null"].round(2)
+
 
 total_rows = len(df_past)
 coverage = (
@@ -315,45 +329,38 @@ st.plotly_chart(fig_weekly, use_container_width=True)
 # ---------------------------
 # Section: Completeness
 # ---------------------------
-st.subheader("Column Completeness")
-cov_plot = coverage.sort_values(["status", "pct_not_null"])
+st.subheader("Column Completeness by Market Status (Past Events Only)")
 
-fig_cov = px.bar(
-    cov_plot,
-    x="pct_not_null",
-    y="column",
-    orientation="h",
-    title="Column completeness (% not null) — past events only",
-    facet_row="status",
-    category_orders={"health": ["🟢 Good", "🟡 Partial", "⚠️ Sparse", "🚨 Dead"]},
-    color="health",
-    color_discrete_map={
-        "🟢 Good": "#7CFF00",
-        "🟡 Partial": "#FFD300",
-        "⚠️ Sparse": "#FF6B00",
-        "🚨 Dead": "#FF2CDF",
-    },
-    height=900,
+pivot = (
+    cov_by_mkt_status
+    .pivot(index="column", columns="market_status", values="pct_not_null")
+    .sort_index()
+)
+
+fig_cov = px.imshow(
+    pivot,
+    aspect="auto",
+    zmin=0,
+    zmax=100,
+    title="Completeness (% not null) by markets2026.status",
 )
 
 fig_cov.update_layout(
     plot_bgcolor=DARK_BG,
     paper_bgcolor=DARK_BG,
     font=dict(color=TEXT),
-    showlegend=False,
+    coloraxis_colorbar=dict(title="% not null"),
     margin=dict(l=140, r=40, t=80, b=40),
 )
 
-# Make facets tighter/cleaner
-fig_cov.for_each_annotation(lambda a: a.update(text=a.text.replace("status=", "")))
-fig_cov.update_yaxes(title="", showgrid=False)
-fig_cov.update_xaxes(title="% of rows with data", showgrid=True, gridcolor=GRID, zeroline=False)
-
 st.plotly_chart(fig_cov, use_container_width=True)
 
-with st.expander("Show completeness table"):
-    st.dataframe(coverage, use_container_width=True, height=420)
-
+with st.expander("Show completeness table (by market status)"):
+    st.dataframe(
+        cov_by_mkt_status.sort_values(["market_status", "pct_not_null", "column"]),
+        use_container_width=True,
+        height=520,
+    )
 # ---------------------------
 # Section: Missingness heatmap (select one column)
 # ---------------------------
