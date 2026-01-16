@@ -221,16 +221,19 @@ if "status" not in df_past.columns:
     st.error("markets2026 missing required column: status")
     st.stop()
 
-# Completeness per column, per markets2026.status (past events only)
-cov_by_mkt_status = (
-    df_past.groupby(df_past["status"].astype(str))
+# Compute completeness per status safely
+means = (
+    df_past.groupby("status")
            .apply(lambda g: g.notna().mean() * 100)
-           .reset_index()
-           .rename(columns={"level_0": "market_status", "level_1": "column", 0: "pct_not_null"})
+)
+
+cov_by_mkt_status = (
+    means.reset_index(drop=False)               # brings "status" back once
+         .melt(id_vars=["status"], var_name="column", value_name="pct_not_null")
+         .rename(columns={"status": "market_status"})
 )
 
 cov_by_mkt_status["pct_not_null"] = cov_by_mkt_status["pct_not_null"].round(2)
-
 
 total_rows = len(df_past)
 coverage = (
