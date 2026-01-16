@@ -1,14 +1,17 @@
 import os
 from datetime import date
+
 import pandas as pd
+import plotly.express as px
 import streamlit as st
 from sqlalchemy import create_engine, text
-import plotly.express as px
 
 CACHE_TTL_SECONDS = 6 * 60 * 60
-# NEW: load .env locally (safe in prod: it just does nothing if no .env exists)
+
+# Load .env locally (safe in prod: no-op if missing)
 try:
     from dotenv import load_dotenv
+
     load_dotenv()
 except Exception:
     pass
@@ -30,7 +33,6 @@ DARK_BG = "#0b1020"
 GRID = "#1e2747"
 TEXT = "#e6ecff"
 
-# A tiny bit of CSS for the full-page dark background
 st.markdown(
     f"""
     <style>
@@ -47,7 +49,7 @@ st.markdown(
 )
 
 # ---------------------------
-# NEW: simple login gate
+# Login gate
 # ---------------------------
 def _get_secret(key: str, default: str | None = None) -> str | None:
     # 1) Env var is always safe
@@ -61,7 +63,6 @@ def _get_secret(key: str, default: str | None = None) -> str | None:
         if v2 is not None and str(v2) != "":
             return str(v2)
     except Exception:
-        # No secrets.toml present (or other secrets error) -> ignore
         pass
 
     return default
@@ -70,7 +71,6 @@ def _get_secret(key: str, default: str | None = None) -> str | None:
 def require_login():
     expected = _get_secret("APP_PASSWORD")
     # If you don't set APP_PASSWORD, we don't block access (useful for local dev).
-    # If you want to FORCE login always, remove this early return.
     if not expected:
         return
 
@@ -88,6 +88,7 @@ def require_login():
             st.warning("Please log in.")
             st.stop()
 
+
 require_login()
 
 # ---------------------------
@@ -104,7 +105,7 @@ def get_engine():
     host = _get_secret("DB_HOST")
     name = _get_secret("DB_NAME")
     user = _get_secret("DB_USER")
-    pwd  = _get_secret("DB_PASSWORD")
+    pwd = _get_secret("DB_PASSWORD")
 
     if not all([host, name, user, pwd]):
         st.error(
@@ -116,11 +117,13 @@ def get_engine():
     url = f"postgresql+psycopg2://{user}:{pwd}@{host}:5432/{name}"
     return create_engine(url, pool_pre_ping=True)
 
+
 @st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
 def qdf(sql: str, params: dict | None = None) -> pd.DataFrame:
     engine = get_engine()
     with engine.begin() as conn:
         return pd.read_sql(text(sql), conn, params=params or {})
+
 
 # ---------------------------
 # Sidebar controls
@@ -160,7 +163,7 @@ if not prefixes:
     st.warning("Select at least one prefix.")
     st.stop()
 
-# NEW: parameterized LIKE ANY (ARRAY[:p1, :p2, ...])
+# Parameterized LIKE ANY (ARRAY[:p1, :p2, ...])
 like_params = {f"p{i}": f"{p}%" for i, p in enumerate(prefixes)}
 like_array = ", ".join([f":p{i}" for i in range(len(prefixes))])
 
@@ -187,8 +190,10 @@ with st.spinner("Loading trade_backfill_processed…"):
 # ---------------------------
 df = df.copy()
 
-if "ticker" not in df.columns:
-    st.error("markets2026 missing required column: ticker")
+required_markets_cols = {"ticker", "close_time"}
+missing_markets = [c for c in required_markets_cols if c not in df.columns]
+if missing_markets:
+    st.error(f"markets2026 missing required columns: {missing_markets}")
     st.stop()
 
 df["close_time"] = pd.to_datetime(df.get("close_time"), utc=True, errors="coerce")
@@ -198,14 +203,13 @@ df["close_time_ny"] = df["close_time"].dt.tz_convert("America/New_York")
 df["week_end_sun_ny"] = df["close_time_ny"].dt.to_period("W-SUN").dt.end_time.dt.date
 
 now_ny = pd.Timestamp.now(tz="America/New_York")
-
 current_week_end = now_ny.to_period("W-SUN").end_time.date()
+
+# chart horizon: extend out (you currently use 14 days)
 next_week_end = (now_ny + pd.Timedelta(days=14)).to_period("W-SUN").end_time.date()
 
 df_historical = df[df["week_end_sun_ny"] <= next_week_end].copy()
-
 df_historical["ticker_option"] = df_historical["ticker"].astype(str).str.extract(r"^(KX[A-Z]+GAME)")
-now_ny = pd.Timestamp.now(tz="America/New_York")
 
 df_past = df[df["close_time_ny"] <= now_ny].copy()
 
@@ -221,20 +225,25 @@ if "status" not in df_past.columns:
     st.error("markets2026 missing required column: status")
     st.stop()
 
-# Compute completeness per status safely
-means = (
-    df_past.groupby("status")
-           .apply(lambda g: g.notna().mean() * 100)
+# ---- Completeness by markets2026.status (PAST ONLY) ----
+# IMPORTANT: exclude the status column itself to avoid reset_index collisions
+cols_to_score = [c for c in df_past.columns if c != "status"]
+
+means_wide = (
+    df_past.groupby("status")[cols_to_score]
+    .agg(lambda s: s.notna().mean() * 100)
 )
 
 cov_by_mkt_status = (
-    means.reset_index(drop=False)               # brings "status" back once
-         .melt(id_vars=["status"], var_name="column", value_name="pct_not_null")
-         .rename(columns={"status": "market_status"})
+    means_wide.rename_axis("market_status")
+    .stack()
+    .reset_index(name="pct_not_null")
+    .rename(columns={"level_1": "column"})
 )
 
 cov_by_mkt_status["pct_not_null"] = cov_by_mkt_status["pct_not_null"].round(2)
 
+# ---- Overall completeness (PAST ONLY) ----
 total_rows = len(df_past)
 coverage = (
     df_past.notna()
@@ -264,7 +273,6 @@ broken_cols = coverage.loc[coverage["pct_not_null"] < 100, "column"].tolist()
 df_vol = df_trades.copy()
 df_vol["processed_at"] = pd.to_datetime(df_vol.get("processed_at"), utc=True, errors="coerce")
 
-# Guard against missing columns
 needed = {"trades_sum_volume", "market_volume", "ticker", "processed_at"}
 missing_needed = [c for c in needed if c not in df_vol.columns]
 if missing_needed:
@@ -290,10 +298,10 @@ df_outside["processed_at_ny"] = df_outside["processed_at"].dt.tz_convert("Americ
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Markets rows", f"{len(df):,}")
 c2.metric("Historical rows", f"{len(df_historical):,}")
-c3.metric("Broken columns", f"{len(broken_cols):,}")
+c3.metric("Broken columns (past)", f"{len(broken_cols):,}")
 c4.metric("Outside-band trades", f"{len(df_outside):,}")
 
-st.caption(f"Now (NY): {now_ny:%Y-%m-%d %H:%M} | next week ends (NY Sunday): {next_week_end}")
+st.caption(f"Now (NY): {now_ny:%Y-%m-%d %H:%M} | chart horizon ends (NY Sunday): {next_week_end}")
 
 # ---------------------------
 # Section: Weekly games offered
@@ -314,7 +322,7 @@ fig_weekly = px.line(
     color="ticker_option",
     markers=True,
     color_discrete_sequence=NEON_COLORS,
-    title=f"Weekly Games Offered (History → next week ending {next_week_end}, NY)",
+    title=f"Weekly Games Offered (History → week ending {next_week_end}, NY)",
 )
 fig_weekly.update_traces(line=dict(width=3), marker=dict(size=9))
 fig_weekly.update_layout(
@@ -330,7 +338,7 @@ fig_weekly.update_layout(
 st.plotly_chart(fig_weekly, use_container_width=True)
 
 # ---------------------------
-# Section: Completeness
+# Section: Completeness (by markets2026.status)
 # ---------------------------
 st.subheader("Column Completeness by Market Status (Past Events Only)")
 
@@ -364,10 +372,14 @@ with st.expander("Show completeness table (by market status)"):
         use_container_width=True,
         height=520,
     )
+
+with st.expander("Show overall completeness table (all past events)"):
+    st.dataframe(coverage, use_container_width=True, height=420)
+
 # ---------------------------
-# Section: Missingness heatmap (select one column)
+# Section: Missingness heatmap (past only, select one column)
 # ---------------------------
-st.subheader("Missingness Heatmap")
+st.subheader("Missingness Heatmap (Past Events Only)")
 
 if broken_cols:
     col = st.selectbox("Pick a column to inspect", broken_cols, index=0)
@@ -383,14 +395,14 @@ if broken_cols:
 
     heat = heat[heat["total_games"] > 0].copy()
     heat["pct_missing"] = (heat["missing_rows"] / heat["total_games"] * 100).round(1)
-    pivot = heat.pivot(index="ticker_option", columns="week_end_sun_ny", values="pct_missing")
-    pivot = pivot.dropna(axis=1, how="all").sort_index()
+    pivot_hm = heat.pivot(index="ticker_option", columns="week_end_sun_ny", values="pct_missing")
+    pivot_hm = pivot_hm.dropna(axis=1, how="all").sort_index()
 
-    if pivot.empty:
+    if pivot_hm.empty:
         st.info("No heatmap data for this column and selection.")
     else:
         fig_hm = px.imshow(
-            pivot,
+            pivot_hm,
             aspect="auto",
             zmin=0,
             zmax=100,
@@ -401,7 +413,7 @@ if broken_cols:
                 (0.70, "#FF6B00"),
                 (1.00, "#FF2CDF"),
             ],
-            title=f"% Missing: {col}",
+            title=f"% Missing (past events): {col}",
         )
         fig_hm.update_traces(xgap=0, ygap=0)
         fig_hm.update_xaxes(showgrid=False, zeroline=False, showline=False)
@@ -458,7 +470,7 @@ else:
             "ticker_group": True,
             "market_volume": True,
             "trades_sum_volume": True,
-            "volume_ratio": ':.4f',
+            "volume_ratio": ":.4f",
         },
     )
     fig_scatter.add_hline(y=low, opacity=0.25)
