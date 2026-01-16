@@ -210,7 +210,8 @@ if df_historical.empty:
     st.warning("No historical rows found for the selected prefixes.")
     st.stop()
 
-df_past = df_historical = df[df["week_end_sun_ny"] <= now_ny].copy()
+df_past = df[df["close_time_ny"] <= now_ny].copy()
+
 
 # ---------------------------
 # NEW: Completeness split by markets2026.status
