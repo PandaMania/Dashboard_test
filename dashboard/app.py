@@ -210,9 +210,36 @@ if df_historical.empty:
     st.warning("No historical rows found for the selected prefixes.")
     st.stop()
 
-total_rows = len(df_historical)
+df_past = df_historical = df[df["week_end_sun_ny"] <= now_ny].copy()
+
+# ---------------------------
+# NEW: Completeness split by markets2026.status
+# ---------------------------
+if "status" not in df_past.columns:
+    st.error("markets2026 missing required column: status")
+    st.stop()
+
+# Exclude the status column itself from completeness scoring
+cols_to_score = [c for c in df_past.columns if c != "status"]
+
+# Wide table: index=status, columns=fields, values=% not null
+means_wide = (
+    df_past.groupby("status")[cols_to_score]
+    .agg(lambda s: s.notna().mean() * 100)
+)
+
+# Long table: (status, column, pct_not_null)
+cov_by_status = (
+    means_wide.rename_axis("status")
+    .stack()
+    .reset_index(name="pct_not_null")
+    .rename(columns={"level_1": "column"})
+)
+
+cov_by_status["pct_not_null"] = cov_by_status["pct_not_null"].round(2)
+total_rows = len(df_past)
 coverage = (
-    df_historical.notna()
+    df_past.notna()
     .mean()
     .mul(100)
     .round(2)
@@ -225,7 +252,7 @@ coverage = (
 coverage["null_pct"] = (100 - coverage["pct_not_null"]).round(2)
 coverage["rows_not_null"] = (coverage["pct_not_null"] * total_rows / 100).round(0).astype(int)
 coverage["rows_null"] = total_rows - coverage["rows_not_null"]
-coverage["status"] = pd.cut(
+coverage["health"] = pd.cut(
     coverage["pct_not_null"],
     bins=[-1, 5, 50, 90, 100],
     labels=["🚨 Dead", "⚠️ Sparse", "🟡 Partial", "🟢 Good"],
@@ -315,7 +342,7 @@ fig_cov = px.bar(
     y="column",
     orientation="h",
     title="Column completeness (% not null)",
-    color="status",
+    color="health",
     color_discrete_map={
         "🟢 Good": "#7CFF00",
         "🟡 Partial": "#FFD300",
@@ -337,6 +364,41 @@ st.plotly_chart(fig_cov, use_container_width=True)
 with st.expander("Show completeness table"):
     st.dataframe(coverage, use_container_width=True, height=420)
 
+with st.expander("Show completeness table"):
+    st.dataframe(coverage, use_container_width=True, height=420)
+st.subheader("Column Completeness by Market Status")
+
+pivot_status = (
+    cov_by_status
+    .pivot(index="column", columns="status", values="pct_not_null")
+    .sort_index()
+)
+
+fig_cov_status = px.imshow(
+    pivot_status,
+    aspect="auto",
+    zmin=0,
+    zmax=100,
+    title="Completeness (% not null) split by markets2026.status",
+)
+
+fig_cov_status.update_layout(
+    plot_bgcolor=DARK_BG,
+    paper_bgcolor=DARK_BG,
+    font=dict(color=TEXT),
+    coloraxis_colorbar=dict(title="% not null"),
+    margin=dict(l=140, r=40, t=80, b=40),
+)
+
+st.plotly_chart(fig_cov_status, use_container_width=True)
+
+with st.expander("Show completeness-by-status table"):
+    st.dataframe(
+        cov_by_status.sort_values(["status", "pct_not_null", "column"]),
+        use_container_width=True,
+        height=520,
+    )
+
 # ---------------------------
 # Section: Missingness heatmap (select one column)
 # ---------------------------
@@ -346,7 +408,7 @@ if broken_cols:
     col = st.selectbox("Pick a column to inspect", broken_cols, index=0)
 
     heat = (
-        df_historical.dropna(subset=["ticker_option", "week_end_sun_ny"])
+        df_past.dropna(subset=["ticker_option", "week_end_sun_ny"])
         .groupby(["week_end_sun_ny", "ticker_option"], as_index=False)
         .agg(
             total_games=("ticker", "nunique"),
