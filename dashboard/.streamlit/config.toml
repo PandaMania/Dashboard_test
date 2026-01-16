@@ -1,0 +1,23 @@
+[server]
+headless = true
+port = 8501
+address = "0.0.0.0"
+
+# Prevent random cross-origin issues behind proxies
+enableCORS = false
+enableXsrfProtection = true
+
+# If you're behind Render / Cloud Run / Fly
+# this avoids websocket weirdness
+runOnSave = true
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+base = "dark"
+primaryColor = "#00F0FF"
+backgroundColor = "#0b1020"
+secondaryBackgroundColor = "#0f1633"
+textColor = "#e6ecff"
+font = "sans serif"
